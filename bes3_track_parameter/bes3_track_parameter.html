@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Track Parameter</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #1a1a2e;
+            font-family: Arial, sans-serif;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            max-width: 300px;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        button {
+            margin: 5px;
+            padding: 8px 15px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1976d2;
+        }
+
+        #status {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .param-control {
+            margin: 8px 0;
+        }
+
+        .param-control label {
+            display: inline-block;
+            width: 80px;
+            color: #4fc3f7;
+        }
+
+        .param-control input {
+            width: 120px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="controls">
+        <h3>BSEIII Track Parameter</h3>
+
+        <div class="control-group">
+            <button id="reset-view">Reset View</button>
+            <button id="reset-all">Reset All</button>
+            <button id="screenshot-btn">Take Screenshot</button>
+        </div>
+
+        <div class="control-group">
+            <div class="param-control">
+                <label>dᵨ :</label>
+                <input type="range" id="drho-slider" min="0" max="4" step="0.2" value="2">
+                <span id="drho-value">2</span>
+            </div>
+            <div class="param-control">
+                <label>ϕ₀ :</label>
+                <input type="range" id="phi-slider" min="0" max="360" step="1" value="45">
+                <span id="phi-value">45°</span>
+            </div>
+
+            <div class="param-control">
+                <label>κ=q/pt:</label>
+                <input type="range" id="kappa-slider" min="0.1" max="2" step="0.1" value="0.8">
+                <span id="kappa-value">0.8</span>
+            </div>
+
+            <div class="param-control">
+                <label>λ=pz/pt:</label>
+                <input type="range" id="lambda-slider" min="-2" max="2" step="0.1" value="0.5">
+                <span id="lambda-value">0.5</span>
+            </div>
+
+            <div class="param-control">
+                <label>z0:</label>
+                <input type="range" id="z0-slider" min="-4" max="4" step="0.1" value="0">
+                <span id="z0-value">0.0</span>
+            </div>
+
+            <div class="control-group">
+                <div>Mouse Left Button: Rotate View</div>
+                <div>Mouse Right Button: Pan View</div>
+                <div>Mouse Wheel: Zoom In/Out</div>
+            </div>
+
+            <div> Author: Yao Zhang (zhangyao@ihep.ac.cn)</div>
+            <div> Author: Zhaoke Zhang (zkzhang@ihep.ac.cn)</div>
+        </div>
+    </div>
+    <canvas id="xyCanvas" width="200" height="200" style="position:absolute; bottom:20px; right:20px;
+         border:1px solid #4fc3f7; background:rgba(0,0,0,0.0); pointer-events:none;">
+    </canvas>
+
+    <div id="status">Ready</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="OrbitControls.min.js"></script>
+    <script src="https://threejs.org/examples/js/renderers/SVGRenderer.js"></script>
+    <script src="https://threejs.org/examples/js/renderers/Projector.js"></script>
+    <script>
+        // Create renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const LINEWIDTH = 5;
+        const COLOR_SOFT_RED = 0xE15759;
+        const COLOR_WARM_ORANGE = 0xF28E2C;
+        const COLOR_PINE_GREEN = 0x59A14F;
+        const COLOR_LAKE_CYAN = 0x76B7B2;
+        const COLOR_MIST_BLUE = 0x4E79A7;
+        const COLOR_ASH_PURPLE = 0xB07AA1;
+        const COLOR_NUDE_PINK = 0xFF9DA7;
+        const COLOR_CRIMSON = 0xDC143C;
+        const COLOR_SAND_BROWN = 0x8C564B;
+        const COLOR_BLACK = 0x000000;
+        const COLOR_WHITE = 0xFFFFFF;
+        const COLOR_GRAY = 0x888888;
+
+        // Scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xffffff);
+
+        // Camera
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(10, 8, 10);
+        camera.lookAt(0, 0, 0);
+
+        // Orbit controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = true;
+        controls.minDistance = 3;
+        controls.maxDistance = 30;
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 15);
+        scene.add(directionalLight);
+
+        // =================== Physical Parameters ===================
+        let params = {
+            pivotX: 0,//pivot x
+            pivotY: 0,//pivot y
+            pivotZ: 0,//pivot z
+            drho: 2,          // d_rho
+            q: 1,          // Charge q
+            kappa: 1,      // curvature κ = q/pt
+            phi0: 135,        // φ angle that point P makes with X axis in XY plane
+            lambda: 0.5,    // λ = pz/pt
+            z0: 0,        // initial z position
+            cylinder_length: 10, // Cylinder length
+            alpha: 3
+        };
+
+        // =================== Create Geometric Elements ===================
+
+        // 1. Create a translucent blue cylinder (detector geometry)
+        function createDetectorCylinder() {
+            const geometry = new THREE.CylinderGeometry(
+                params.drho, params.drho, params.cylinder_length, 64, 1, true
+            );
+            geometry.rotateX(Math.PI / 2);
+
+            const material = new THREE.MeshPhongMaterial({
+                color: COLOR_LAKE_CYAN,
+                transparent: true,
+                opacity: 0.05,
+                side: THREE.DoubleSide
+            });
+
+            const cylinder = new THREE.Mesh(geometry, material);
+            cylinder.name = "DetectorCylinder";
+
+            return cylinder;
+        }
+
+        // 2. Create point P (blue sphere)
+        function createPointP() {
+            const geometry = new THREE.SphereGeometry(0.05, 6, 6);
+            const material = new THREE.MeshPhongMaterial({
+                color: COLOR_MIST_BLUE,
+                shininess: 100
+            });
+
+            const sphere = new THREE.Mesh(geometry, material);
+            sphere.name = "PointP";
+
+            return sphere;
+        }
+
+        // 3. Create track - based on new helical formula
+        function createTrack() {
+            // Calculate position of point P (on cylinder surface)
+            const phiRad = THREE.MathUtils.degToRad(params.phi0);
+            const cosPhi0 = Math.cos(phiRad);
+            const sinPhi0 = Math.sin(phiRad);
+
+            // Point P on cylinder surface
+            const x0 = params.pivotX;
+            const y0 = params.pivotY;
+            const z0 = params.pivotZ;
+            const xp = params.pivotX + params.drho * cosPhi0;
+            const yp = params.pivotY + params.drho * sinPhi0;
+            const zp = params.pivotY + params.z0;
+
+            // Calculate helical track parameters
+            const R = 1 / (Math.abs(params.kappa)); // Curvature radius
+            const points = [];
+
+            // Calculate initial momentum direction (in XY plane)
+            // px direction determined by phi0
+            const alpha = params.alpha;
+            const pt = params.kappa !== 0 ? 1 / Math.abs(params.kappa) : 10; // Transverse momentum magnitude (arbitrary if kappa=0)
+            const px = pt * Math.cos(phiRad - Math.PI / 2);
+            const py = pt * Math.sin(phiRad - Math.PI / 2);
+            const pz = params.lambda * pt;
+            const rho = alpha / params.kappa;
+
+            const maxTurn = 1;
+            for (let iTurn = 1; iTurn <= maxTurn; iTurn++) {
+                for (let iPhi = 0; iPhi <= 360; iPhi += 5) {
+                    const phi = iPhi / 180 * Math.PI + ((iTurn - 1) * Math.PI * 2); // Track angle in XY plane as function of t
+
+                    // Helical equation
+                    const x = xp + rho * (Math.cos(phiRad) - Math.cos(phiRad + phi));
+                    const y = yp + rho * (Math.sin(phiRad) - Math.sin(phiRad + phi));
+                    const z = zp + rho * Math.tan(params.lambda) * phi;
+
+                    points.push(new THREE.Vector3(x, y, z));
+                    //console.log('x y z', x, y, z);
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({
+                color: COLOR_SOFT_RED,
+                linewidth: LINEWIDTH
+            });
+
+            return new THREE.Line(geometry, material);
+        }
+
+        // 4. Create φ angle - position of point P on cylinder
+        function createPhiArc() {
+            const phiRad = THREE.MathUtils.degToRad(params.phi0);
+            const radius = params.drho;
+            const origin = new THREE.Vector3(0, 0, 0.0);
+            const dirA = new THREE.Vector3(1, 0, 0);
+            const dirB = new THREE.Vector3(Math.cos(phiRad), Math.sin(phiRad), 0);
+            return createAngleArc(origin, dirA, dirB, radius, { color: COLOR_PINE_GREEN, label: 'φ<sub>0<sub>', labelScale: 1.0, showLabel: false, radialOffset: 0.3 });
+        }
+
+        function createLambdaArc() {
+            // Draw λ as the angle between pt (transverse) and p (full momentum)
+            // Origin at point P, arc lies in the plane spanned by pt and p
+            const phiRad = THREE.MathUtils.degToRad(params.phi0);
+            const cosPhi0 = Math.cos(phiRad);
+            const sinPhi0 = Math.sin(phiRad);
+            const x0 = params.pivotX;
+            const y0 = params.pivotY;
+            const xp = params.pivotX + params.drho * cosPhi0;
+            const yp = params.pivotY + params.drho * sinPhi0;
+            const zp = params.pivotZ + params.z0;
+
+            // transverse momentum magnitude and full components
+            const pt = params.kappa !== 0 ? 1 / Math.abs(params.kappa) : 10; // Avoid division by zero
+            const px = pt * Math.cos(phiRad - Math.PI / 2);
+            const py = pt * Math.sin(phiRad - Math.PI / 2);
+            const pz = params.lambda * pt;
+            const p = Math.sqrt(pt * pt + pz * pz);
+
+            // directions: pt (in XY plane) and full momentum p (has z component)
+            const pDir = new THREE.Vector3(px, py, params.lambda).normalize();
+            const pxDir = new THREE.Vector3(Math.sign(px) || 1, 0, 0).normalize();
+            const pyDir = new THREE.Vector3(0, Math.sign(py) || 1, 0).normalize();
+            const pzDir = new THREE.Vector3(0, 0, (pz >= 0 ? 1 : -1)).normalize();
+            const ptDir = new THREE.Vector3(pDir.x, pDir.y, 0).normalize();
+
+            const poca = new THREE.Vector3(xp, yp, zp);
+
+            // choose a reasonable radius for the arc (small, relative to POCA)
+            const arcRadius = Math.max(0.4, Math.min(1.5, pt));
+
+            return createAngleArc(poca, ptDir, pDir, arcRadius, { color: COLOR_CRIMSON, label: 'λ', labelScale: 1.5, showLabel: true, labelRadius: 1.5 });
+        }
+
+        // 6. Create Z plane (gray translucent plane) — located at the bottom of the cylinder (z = -cylinder_length/2)
+        function createZPlane() {
+            const geometry = new THREE.PlaneGeometry(15, 15);
+            const material = new THREE.MeshPhongMaterial({
+                color: COLOR_GRAY,
+                transparent: true,
+                opacity: 0.1,
+                side: THREE.DoubleSide
+            });
+
+            const plane = new THREE.Mesh(geometry, material);
+            plane.name = "ZPlane";
+            // Plane is by default in the XY plane, move it to the bottom of the cylinder (z = -length/2)
+            const zPos = -Math.abs(params.cylinder_length) / 2 - 0.01; // Small offset to avoid Z-fighting
+            plane.position.set(0, 0, zPos);
+
+            return plane;
+        }
+
+        // createLabel: optional scale and alwaysOnTop parameters
+        // scale: if null, use default (1.5, 0.75), otherwise set to (scale, scale*0.5)
+        // alwaysOnTop: if true, disable depth test and raise renderOrder to avoid being occluded by geometry
+        function createLabel(text, position, color = 0xffffff, scale = null, alwaysOnTop = false) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+
+            // Set appropriate canvas size
+            canvas.width = 256;
+            canvas.height = 128;
+
+            // Clear canvas
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Configure text style
+            context.font = 'Bold 64px Arial';
+            context.fillStyle = '#' + color.toString(16).padStart(6, '0'); // Convert hex to CSS color
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+
+            // Draw text (centered)
+            context.fillText(text, canvas.width / 2, canvas.height / 2);
+
+            // Create texture and mark it for update
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+
+            // Create sprite
+            const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true
+            });
+            if (alwaysOnTop) {
+                material.depthTest = false;
+                material.depthWrite = false;
+            }
+            const sprite = new THREE.Sprite(material);
+
+            // Adjust scale (based on canvas size)
+            if (scale === null) sprite.scale.set(1.5, 0.75, 1);
+            else sprite.scale.set(scale, scale * 0.5, 1);
+            sprite.position.copy(position);
+            if (alwaysOnTop) sprite.renderOrder = 999;
+
+            return sprite;
+        }
+
+        // Alternative implementation: manually segmented dashed line (without relying on LineDashedMaterial's computeLineDistances)
+        // pointsArray: Array<THREE.Vector3>, opts: { dashSize, gapSize, color, linewidth }
+        function createDashedLine(pointsArray, opts = {}) {
+            const dashSize = opts.dashSize !== undefined ? opts.dashSize : 0.2;
+            const gapSize = opts.gapSize !== undefined ? opts.gapSize : 0.05;
+            const color = opts.color !== undefined ? opts.color : COLOR_GRAY;
+            const linewidth = opts.linewidth !== undefined ? opts.linewidth : 1;
+
+            if (!pointsArray || pointsArray.length < 2) return new THREE.Group();
+
+            // 1) Calculate segment lengths and total length
+            const segLens = [];
+            let totalLen = 0;
+            for (let i = 0; i < pointsArray.length - 1; i++) {
+                const a = pointsArray[i];
+                const b = pointsArray[i + 1];
+                const l = a.distanceTo(b);
+                segLens.push(l);
+                totalLen += l;
+            }
+            if (totalLen <= 0) return new THREE.Group();
+
+            // 2) Generate dash segments
+            const dashSegments = [];
+            const step = dashSize + gapSize;
+            for (let start = 0; start < totalLen; start += step) {
+                const ds = start;
+                const de = Math.min(start + dashSize, totalLen);
+                if (de <= ds) continue;
+
+                let accum = 0;
+                for (let i = 0; i < segLens.length; i++) {
+                    const segStart = accum;
+                    const segEnd = accum + segLens[i];
+                    accum = segEnd;
+                    const ovStart = Math.max(ds, segStart);
+                    const ovEnd = Math.min(de, segEnd);
+                    if (ovEnd > ovStart + 1e-9) {
+                        const localStartT = (ovStart - segStart) / (segLens[i] || 1);
+                        const localEndT = (ovEnd - segStart) / (segLens[i] || 1);
+                        const p0 = pointsArray[i];
+                        const p1 = pointsArray[i + 1];
+                        const segP0 = new THREE.Vector3().copy(p0).lerp(p1, localStartT);
+                        const segP1 = new THREE.Vector3().copy(p0).lerp(p1, localEndT);
+                        dashSegments.push(segP0, segP1);
+                    }
+                }
+            }
+
+            // 3) Build geometry and return LineSegments
+            const positions = new Float32Array(dashSegments.length * 3);
+            for (let i = 0; i < dashSegments.length; i++) {
+                positions[i * 3 + 0] = dashSegments[i].x;
+                positions[i * 3 + 1] = dashSegments[i].y;
+                positions[i * 3 + 2] = dashSegments[i].z;
+            }
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = new THREE.LineBasicMaterial({ color: color, linewidth: linewidth });
+            return new THREE.LineSegments(geom, mat);
+        }
+
+        // General: draw angle arc between two direction vectors (origin as center)
+        // origin: THREE.Vector3, dirA/dirB: THREE.Vector3 (direction vectors), radius: number or null
+        // options: { color, segments, label, labelScale, showLabel, alwaysOnTop, labelOffset, labelROffSet }
+        function createAngleArc(origin, dirA, dirB, radius = null, options = {}) {
+            const color = options.color !== undefined ? options.color : COLOR_NUDE_PINK;
+            const segments = options.segments || 28;
+            const label = options.label || '';
+            const labelScale = options.labelScale || 0.9;
+            const showLabel = options.showLabel !== undefined ? options.showLabel : true;
+            const alwaysOnTop = options.alwaysOnTop !== undefined ? options.alwaysOnTop : true;
+            const labelOffset = options.labelOffset !== undefined ? options.labelOffset : 0.06;
+            const radialOffset = options.radialOffset !== undefined ? options.radialOffset : 0.0;
+            const labelRadius = options.labelRadius !== undefined ? options.labelRadius : null; // 新增：标签独立半径，默认使用弧线半径
+
+            const u = dirA.clone().normalize();
+            const proj = u.clone().multiplyScalar(dirB.dot(u));
+            let v = dirB.clone().sub(proj);
+            if (v.length() < 1e-6) {
+                v = new THREE.Vector3(-u.y, u.x, 0);
+                if (v.length() < 1e-6) v = new THREE.Vector3(0, 0, 1);
+            }
+            v.normalize();
+
+            const cosA = THREE.MathUtils.clamp(u.dot(dirB), -1, 1);
+            const angle = Math.acos(cosA);
+
+            if (radius === null) radius = Math.max(0.4, 0.25);
+
+            // 应用径向偏移后的实际半径（用于弧线）
+            const actualRadius = radius + radialOffset;
+
+            // 标签半径：如果指定了labelRadius则使用它，否则使用actualRadius
+            const actualLabelRadius = labelRadius !== null ? labelRadius : actualRadius;
+
+            const pts = [];
+            for (let i = 0; i <= segments; i++) {
+                const t = (i / segments) * angle;
+                const ptComp = u.clone().multiplyScalar(actualRadius * Math.cos(t));
+                const vComp = v.clone().multiplyScalar(actualRadius * Math.sin(t));
+                pts.push(origin.clone().add(ptComp).add(vComp));
+            }
+
+            const grp = new THREE.Group();
+            const arc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: color, linewidth: 2 }));
+            grp.add(arc);
+
+            if (showLabel && label) {
+                const midT = angle * 0.5;
+                // 使用标签半径计算标签位置
+                const midPos = origin.clone()
+                    .add(u.clone().multiplyScalar(actualLabelRadius * Math.cos(midT)))
+                    .add(v.clone().multiplyScalar(actualLabelRadius * Math.sin(midT)));
+
+                // 应用标签偏移
+                midPos.add(v.clone().multiplyScalar(labelOffset));
+
+                grp.add(createLabel(label, midPos, color, labelScale, alwaysOnTop));
+            }
+
+            return grp;
+        }
+
+
+        // 7. Create text labels
+        function createTextLabels() {
+            const group = new THREE.Group();
+            return group;
+        }
+
+        // 8. Create coordinate axes (red, green, blue)
+        function createCoordinateAxes() {
+            const group = new THREE.Group();
+            const axisLength = 5;
+            const headLength = 0.4;
+            const headWidth = 0.2;
+
+
+            // X axis (red arrow)
+            const xDir = new THREE.Vector3(1, 0, 0);
+            const origin = new THREE.Vector3(0, 0, 0);
+            const xArrow = new THREE.ArrowHelper(xDir, origin, axisLength, COLOR_SOFT_RED, headLength, headWidth);
+            group.add(xArrow);
+
+            // Y axis (green arrow)
+            const yDir = new THREE.Vector3(0, 1, 0);
+            const yOrigin = new THREE.Vector3(0, 0, 0);
+            const yArrow = new THREE.ArrowHelper(yDir, origin, axisLength, COLOR_PINE_GREEN, headLength, headWidth);
+            group.add(yArrow);
+
+            // Z axis (blue arrow)
+            const zDir = new THREE.Vector3(0, 0, 1);
+            const zAxisPoints = [
+                new THREE.Vector3(0, 0, -axisLength),
+                new THREE.Vector3(0, 0, axisLength)
+            ];
+            const zAxisGeometry = new THREE.BufferGeometry().setFromPoints(zAxisPoints);
+            const zAxisLine = new THREE.Line(
+                zAxisGeometry,
+                new THREE.LineBasicMaterial({ color: COLOR_MIST_BLUE })
+            );
+            group.add(zAxisLine);
+            const zArrow = new THREE.ArrowHelper(zDir, origin, axisLength, COLOR_MIST_BLUE, headLength, headWidth);
+            group.add(zArrow);
+
+            // add 3D axis labels
+            group.add(createLabel('X', new THREE.Vector3(axisLength + 0.2, 0, 0), COLOR_SOFT_RED));
+            group.add(createLabel('Y', new THREE.Vector3(0.5, axisLength - 0.2, 0), COLOR_PINE_GREEN));
+            group.add(createLabel('Z', new THREE.Vector3(0, 0, axisLength + 0.2), COLOR_MIST_BLUE));
+            group.add(createLabel('O', new THREE.Vector3(0.5, 0.5, 0), COLOR_GRAY));
+            return group;
+        }
+
+        // 9. Create momentum indicator
+        function createMomentumIndicator() {
+            const group = new THREE.Group();
+
+            // Position of point P (3D cylinder coordinates)
+            const phiRad = THREE.MathUtils.degToRad(params.phi0);
+            const cosPhi0 = Math.cos(phiRad);
+            const sinPhi0 = Math.sin(phiRad);
+            const xp = params.pivotX + params.drho * cosPhi0;
+            const yp = params.pivotY + params.drho * sinPhi0;
+            const zP = params.z0;
+
+            //pxyz,pt
+            const pt = params.kappa !== 0 ? 1 / Math.abs(params.kappa) : 10; // Avoid division by zero
+            const px = pt * Math.cos(phiRad - Math.PI / 2);
+            const py = pt * Math.sin(phiRad - Math.PI / 2);
+            const pz = params.lambda * pt;
+            const p = Math.sqrt(pt * pt + pz * pz);
+
+            // Momentum direction vector
+            pDirX = phiRad - Math.PI / 2;
+            pDirY = phiRad - Math.PI / 2;
+
+
+            // directions: use sign for axis-aligned components
+            const pDir = new THREE.Vector3(px, py, params.lambda).normalize();
+            const pxDir = new THREE.Vector3(Math.sign(px) || 1, 0, 0).normalize();
+            const pyDir = new THREE.Vector3(0, Math.sign(py) || 1, 0).normalize();
+            const pzDir = new THREE.Vector3(0, 0, (pz >= 0 ? 1 : -1)).normalize();
+            const ptDir = new THREE.Vector3(pDir.x, pDir.y, 0);
+
+            const momentumLength = p;
+            const lengthScale = 3.; // Scale the length of the momentum arrow
+            const arrowOrigin = new THREE.Vector3(xp, yp, zP);
+
+            // Use ArrowHelper to automatically handle 3D direction
+            const pArrowHelper = new THREE.ArrowHelper(
+                pDir,           // Direction (normalized)
+                arrowOrigin,           // Starting point
+                momentumLength * lengthScale,        // Length
+                COLOR_WARM_ORANGE,              // Color
+                0.2,  // Arrow length
+                0.2  // Arrow width
+            );
+            const pxArrowHelper = new THREE.ArrowHelper(
+                pxDir,           // Direction (normalized)
+                arrowOrigin,           // Starting point
+                Math.abs(px) * lengthScale, // Length
+                COLOR_SOFT_RED,              // Color
+                0.2,  // Arrow length
+                0.2  // Arrow width
+            );
+            const pyArrowHelper = new THREE.ArrowHelper(
+                pyDir,           // Direction (normalized)
+                arrowOrigin,           // Starting point
+                Math.abs(py) * lengthScale,// Length
+                COLOR_PINE_GREEN,              // Color
+                0.2,  // Arrow length
+                0.2  // Arrow width
+            );
+            const pzArrowHelper = new THREE.ArrowHelper(
+                pzDir,           // Direction (normalized)
+                arrowOrigin,           // Starting point
+                Math.abs(pz) * lengthScale, // Length
+                COLOR_MIST_BLUE,              // Color
+                0.2,  // Arrow length
+                0.2  // Arrow width
+            );
+            const ptArrowHelper = new THREE.ArrowHelper(
+                ptDir,          // Direction (normalized)
+                arrowOrigin,           // Starting point
+                pt * lengthScale, // Length
+                COLOR_LAKE_CYAN,              // Color
+                0.2,  // Arrow length
+                0.2  // Arrow width
+            );
+
+            // dashed line from origin O to P' (3D) to illustrate φ reference
+            const opDashed = createDashedLine([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(xp, yp, 0)
+            ], { color: COLOR_GRAY, dashSize: 0.2, gapSize: 0.05 });
+
+            const zAxisLine = createDashedLine([
+                new THREE.Vector3(xp, yp, params.z0),
+                new THREE.Vector3(0, 0, params.z0)
+            ], {
+                color: COLOR_MIST_BLUE,
+                dashSize: 0.3,
+                gapSize: 0.2,
+                linewidth: 2
+            });
+            group.add(zAxisLine);
+
+            // Add z0 label at the intersection point on Z axis
+            const z0LabelPos = new THREE.Vector3(0.2, -0.2, params.z0); // Slightly offset from the axis
+            group.add(createLabel('z₀', z0LabelPos, COLOR_MIST_BLUE, null, true));
+
+            // Optional: Add a small sphere at the intersection point
+            const sphereGeo = new THREE.SphereGeometry(0.05, 6, 6);
+            const sphereMat = new THREE.MeshPhongMaterial({ color: COLOR_MIST_BLUE });
+            const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+            sphere.position.set(0, 0, params.z0);
+            group.add(sphere);
+
+            group.add(pArrowHelper);
+            group.add(pxArrowHelper);
+            group.add(pyArrowHelper);
+            group.add(pzArrowHelper);
+            group.add(ptArrowHelper);
+            //group.add(opDashed);
+
+            // Add minimal 3D labels
+            // pz label at the tip of the pz arrow
+            //const pzTip = arrowOrigin.clone().add(pzDir.clone().multiplyScalar(Math.abs(pz) * lengthScale + 0.18));
+            //group.add(createLabel('pz', pzTip, COLOR_MIST_BLUE, null, true));
+
+            // pt label at the tip of the pt arrow
+            const ptTip = arrowOrigin.clone().add(ptDir.clone().multiplyScalar(Math.abs(pt) * lengthScale + 0.18));
+            group.add(createLabel('pt', ptTip, COLOR_LAKE_CYAN, null, true));
+
+            // p label at the tip of the full momentum vector
+            const pTip = arrowOrigin.clone().add(pDir.clone().multiplyScalar(momentumLength * lengthScale + 0.3));
+            group.add(createLabel('p', pTip, COLOR_WARM_ORANGE, null, true));
+
+            return group;
+        }
+
+        // =================== Initialize Scene ===================
+        let detectorCylinder, pointP, track, phiArc, lambdaArc, zPlane, labels, axes, momentumIndicator;
+        let zPlaneLabelsGroup, zPlaneProjGroup; // group for labels projected onto Z plane
+        let xyTrack, xyPArr, xyPhiArc; // XY projection objects
+
+        function initScene() {
+            // Clear old elements
+            if (detectorCylinder) scene.remove(detectorCylinder);
+            if (pointP) scene.remove(pointP);
+            if (track) scene.remove(track);
+            if (phiArc) scene.remove(phiArc);
+            if (lambdaArc) scene.remove(lambdaArc);
+            if (zPlane) scene.remove(zPlane);
+            if (labels) scene.remove(labels);
+            if (axes) scene.remove(axes);
+            if (momentumIndicator) scene.remove(momentumIndicator);
+            if (zPlaneLabelsGroup) scene.remove(zPlaneLabelsGroup);
+            if (zPlaneProjGroup) scene.remove(zPlaneProjGroup);
+
+            // Create new elements
+            detectorCylinder = createDetectorCylinder();
+            pointP = createPointP();
+            track = createTrack();
+            phiArc = createPhiArc();
+            lambdaArc = createLambdaArc();
+            zPlane = createZPlane();
+            labels = createTextLabels();
+            axes = createCoordinateAxes();
+            momentumIndicator = createMomentumIndicator();
+
+            // Create Z plane projection group
+            zPlaneLabelsGroup = new THREE.Group();
+            zPlaneProjGroup = new THREE.Group();
+
+            // Calculate position of point P and set
+            const xp = params.pivotX + params.drho * Math.cos(THREE.MathUtils.degToRad(params.phi0));
+            const yp = params.pivotY + params.drho * Math.sin(THREE.MathUtils.degToRad(params.phi0));
+
+            pointP.position.set(xp, yp, params.z0);
+
+            console.log('Point P position:', pointP.position);
+
+            // Add to scene
+            scene.add(detectorCylinder);
+            scene.add(pointP);
+            scene.add(track);
+            //scene.add(phiArc);
+            scene.add(lambdaArc);
+            scene.add(zPlane);
+            scene.add(labels);
+            scene.add(axes);
+            scene.add(momentumIndicator);
+            scene.add(zPlaneLabelsGroup);
+            scene.add(zPlaneProjGroup);
+
+            // Build Z plane projections
+            buildZPlaneProjections();
+        }
+
+        // =================== UI Controls ===================
+
+        // Initialize UI value display
+        document.getElementById('drho-value').textContent = params.drho.toFixed(1);
+        document.getElementById('kappa-value').textContent = params.kappa.toFixed(1);
+        document.getElementById('phi-value').textContent = params.phi0 + '°';
+        document.getElementById('lambda-value').textContent = params.lambda.toFixed(1);
+        document.getElementById('z0-value').textContent = params.z0.toFixed(1);
+
+        // Button to take screenshot
+        document.getElementById('screenshot-btn').addEventListener('click', () => {
+            takeHighResScreenshot();
+        });
+        // Slider controls
+        document.getElementById('drho-slider').addEventListener('input', (e) => {
+            params.drho = parseFloat(e.target.value);
+            document.getElementById('drho-value').textContent = params.drho.toFixed(1);
+            initScene();
+        });
+
+        document.getElementById('kappa-slider').addEventListener('input', (e) => {
+            params.kappa = parseFloat(e.target.value);
+            document.getElementById('kappa-value').textContent = params.kappa.toFixed(1);
+            initScene();
+        });
+
+        document.getElementById('phi-slider').addEventListener('input', (e) => {
+            params.phi0 = parseInt(e.target.value);
+            document.getElementById('phi-value').textContent = params.phi0 + '°';
+            initScene();
+        });
+
+        document.getElementById('lambda-slider').addEventListener('input', (e) => {
+            params.lambda = parseFloat(e.target.value);
+            document.getElementById('lambda-value').textContent = params.lambda.toFixed(1);
+            initScene();
+        });
+
+        document.getElementById('z0-slider').addEventListener('input', (e) => {
+            params.z0 = parseFloat(e.target.value);
+            document.getElementById('z0-value').textContent = params.z0.toFixed(1);
+            initScene();
+        });
+
+        // Button controls
+        document.getElementById('reset-view').addEventListener('click', () => {
+            controls.target.set(0, 0, 0);
+            camera.position.set(10, 8, 10);
+            camera.lookAt(0, 0, 0);
+            controls.update();
+            updateStatus('View reset');
+        });
+
+        document.getElementById('reset-all').addEventListener('click', () => {
+            params.drho = 2;
+            params.kappa = 0.2;
+            params.phi0 = 135;
+            params.lambda = 0.5;
+            params.z0 = 0;
+
+            document.getElementById('drho-slider').value = params.drho;
+            document.getElementById('kappa-slider').value = params.kappa;
+            document.getElementById('phi-slider').value = params.phi0;
+            document.getElementById('lambda-slider').value = params.lambda;
+            document.getElementById('z0-slider').value = params.z0;
+
+            document.getElementById('drho-value').textContent = params.drho.toFixed(1);
+            document.getElementById('kappa-value').textContent = params.kappa.toFixed(1);
+            document.getElementById('phi-value').textContent = params.phi0 + '°';
+            document.getElementById('lambda-value').textContent = params.lambda.toFixed(1);
+            document.getElementById('z0-value').textContent = params.z0.toFixed(1);
+
+            initScene();
+            updateStatus('All parameters reset');
+        });
+
+        // =================== Helper Functions ===================
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        // -------- XY projection specific Three objects --------
+        const xyScene = new THREE.Scene();
+        const xyCam = new THREE.OrthographicCamera(-6, 6, 6, -6, -1, 20);
+        xyCam.position.set(0, 0, 10);
+        xyCam.lookAt(0, 0, 0);
+        xyScene.background = new THREE.Color(COLOR_WHITE);
+        renderer.autoClear = false;
+
+        function buildXYProjections() {
+            // Clear old objects
+            if (xyTrack) xyScene.remove(xyTrack);
+            if (xyPArr) xyScene.remove(xyPArr);
+            if (xyPhiArc) xyScene.remove(xyPhiArc);
+
+            const x0 = params.pivotX;
+            const y0 = params.pivotY;
+
+            /* 1. Track projection (only x,y) */
+            const pts2D = [];
+            const R = 1 / (Math.abs(params.kappa)); // Curvature radius
+            const alpha = params.alpha;
+            const rho = alpha / params.kappa;
+            const phiRad = THREE.MathUtils.degToRad(params.phi0);
+            const cosPhi0 = Math.cos(phiRad);
+            const sinPhi0 = Math.sin(phiRad);
+
+            for (let iPhi = 0; iPhi <= 360; iPhi += 5) {
+                const phi = iPhi / 180 * Math.PI;
+                // Helical equation
+                const x = x0 + (params.drho * cosPhi0) + rho * (cosPhi0 - Math.cos(phiRad + phi));
+                const y = y0 + (params.drho * sinPhi0) + rho * (sinPhi0 - Math.sin(phiRad + phi));
+
+                pts2D.push(new THREE.Vector3(x, y, 0)); // z=0 in XY plane
+            }
+            xyTrack = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(pts2D),
+                new THREE.LineBasicMaterial({ color: COLOR_SOFT_RED, linewidth: 2 }));
+            xyScene.add(xyTrack);
+
+            /* 2. Momentum arrow projection */
+            const dir2D = new THREE.Vector3(cosPhi0, sinPhi0, 0);
+            xyPArr = new THREE.ArrowHelper(
+                dir2D, new THREE.Vector3(x0, y0, 0),
+                2.5, COLOR_WARM_ORANGE, 0.4, 0.2);
+            xyScene.add(xyPArr);
+
+            /* 3. φ arc projection */
+            const phiPts = [];
+            for (let i = 0; i <= 30; i++) {
+                const a = (i / 30) * phiRad;
+                phiPts.push(new THREE.Vector3(
+                    (params.drho + 0.1) * Math.cos(a),
+                    (params.drho + 0.1) * Math.sin(a), 0));
+            }
+            xyPhiArc = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(phiPts),
+                new THREE.LineBasicMaterial({ color: COLOR_PINE_GREEN }));
+            xyScene.add(xyPhiArc);
+
+        }
+
+        // Create projection labels on Z plane
+        function buildZPlaneProjections() {
+            if (!zPlane || !zPlaneLabelsGroup || !zPlaneProjGroup) return;
+
+            // clear old groups
+            while (zPlaneLabelsGroup.children.length) zPlaneLabelsGroup.remove(zPlaneLabelsGroup.children[0]);
+            while (zPlaneProjGroup.children.length) zPlaneProjGroup.remove(zPlaneProjGroup.children[0]);
+
+            // positions
+            const zPos = zPlane.position.z + 0.02; // geometry sits slightly above plane
+            const labelZ = zPlane.position.z + 0.08; // labels a bit higher to avoid overlap
+
+            // common params
+            const phiRad = THREE.MathUtils.degToRad(params.phi0);
+            const cosPhi0 = Math.cos(phiRad);
+            const sinPhi0 = Math.sin(phiRad);
+            const x0 = params.pivotX;
+            const y0 = params.pivotY;
+            const alpha = params.alpha;
+            const rho = params.alpha / params.kappa; // rho = alpha / kappa is the curvature radius with sign, R = 1/|kappa| is the absolute curvature radius
+            const R = 1 / (Math.abs(params.kappa)); // Curvature radius
+            const pt = params.kappa !== 0 ? 1 / Math.abs(params.kappa) : 10; //pt magnitude for momentum arrow scaling, avoid division by zero
+            const xp = x0 + params.drho * cosPhi0; // Position of track start point P in XY plane
+            const yp = y0 + params.drho * sinPhi0; // Position of track start point P in XY plane
+            const xc = xp + rho * Math.cos(phiRad);
+            const yc = yp + rho * Math.sin(phiRad);
+            const px = pt * Math.cos(phiRad - Math.PI / 2);
+            const py = pt * Math.sin(phiRad - Math.PI / 2);
+            const lengthScale = 3.0; // Scale for momentum arrows
+
+
+            // --- cylinder projection: circle centered at origin ---
+            (function () {
+                const seg = 128;
+                const pts = [];
+                for (let i = 0; i <= seg; i++) {
+                    const a = (i / seg) * Math.PI * 2;
+                    pts.push(new THREE.Vector3(params.drho * Math.cos(a), params.drho * Math.sin(a), zPos));
+                }
+                const circ = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: COLOR_LAKE_CYAN, linewidth: 1 }));
+                zPlaneProjGroup.add(circ);
+            })();
+
+            // --- track projection: use same pts as XY projection but at zPos ---
+            (function () {
+                const pts2D = [];
+                const num = 200;
+
+                //const z = z0 + params.z0 - rho * params.lambda * phi;
+                for (let i = 0; i <= num; i++) {
+                    const phi = (i / num) * 4 * Math.PI;
+                    const x = x0 + (params.drho * cosPhi0) + rho * (cosPhi0 - Math.cos(phiRad + phi));
+                    const y = y0 + (params.drho * sinPhi0) + rho * (sinPhi0 - Math.sin(phiRad + phi));
+                    pts2D.push(new THREE.Vector3(x, y, zPos));
+                }
+                const trackLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts2D), new THREE.LineBasicMaterial({ color: COLOR_SOFT_RED, linewidth: 2 }));
+                zPlaneProjGroup.add(trackLine);
+            })();
+
+            // --- momentum components projections as arrows (px, py, pt) ---
+            (function () {
+                const base = new THREE.Vector3(xp, yp, zPos);
+
+                //// px arrow (along X axis)
+                //const dirPx = new THREE.Vector3(Math.sign(px), 0, 0).normalize();
+                //const pxArrow = new THREE.ArrowHelper(dirPx, base, Math.abs(px) * lengthScale, COLOR_SOFT_RED, 0.2, 0.1);
+                //zPlaneProjGroup.add(pxArrow);
+                //zPlaneLabelsGroup.add(createLabel('px', new THREE.Vector3(base.x + dirPx.x * (Math.abs(px) + 0.2), base.y, labelZ), COLOR_SOFT_RED, null, true));
+
+                //// py arrow (along Y axis)
+                //const dirPy = new THREE.Vector3(0, Math.sign(py), 0).normalize();
+                //const pyArrow = new THREE.ArrowHelper(dirPy, base, Math.abs(py) * lengthScale, COLOR_PINE_GREEN, 0.2, 0.1);
+                //zPlaneProjGroup.add(pyArrow);
+                //zPlaneLabelsGroup.add(createLabel('py', new THREE.Vector3(base.x, base.y + dirPy.y * (Math.abs(py) + 0.2), labelZ), COLOR_PINE_GREEN, null, true));
+
+                // pt arrow (transverse) - direction in XY plane
+                const dirPt = new THREE.Vector3(Math.cos(phiRad - Math.PI / 2), Math.sin(phiRad - Math.PI / 2), 0).normalize();
+                const ptArrow = new THREE.ArrowHelper(dirPt, base, pt * lengthScale, COLOR_LAKE_CYAN, 0.2, 0.1);
+                zPlaneProjGroup.add(ptArrow);
+                zPlaneLabelsGroup.add(createLabel('pt', new THREE.Vector3(base.x + dirPt.x * (pt * lengthScale + 0.2), base.y + dirPt.y * (pt * lengthScale + 0.2), labelZ), COLOR_LAKE_CYAN, null, true));
+            })();
+
+            // --- drho and phi0 arcs between vectors ---
+            (function () {
+                // drho distance from 0 to POCA at origin
+                const seg = 40;
+                const rphi = params.drho * 0.5;
+                //const phiPts = [];
+                const centerX = 0;
+                const centerY = 0;
+                const x0 = params.pivotX;
+                const y0 = params.pivotY;
+                const xp = params.pivotX + params.drho * cosPhi0;
+                const yp = params.pivotY + params.drho * sinPhi0;
+                //for (let i = 0; i <= seg; i++) {
+                //    const a = (i / seg) * phiRad;
+                //    phiPts.push(new THREE.Vector3(centerX + rphi * Math.cos(a), centerY + rphi * Math.sin(a), zPos));
+                //}
+                //const phiLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(phiPts), new THREE.LineBasicMaterial({ color: COLOR_PINE_GREEN }));
+                //zPlaneProjGroup.add(phiLine);
+                const phiRad = THREE.MathUtils.degToRad(params.phi0);
+                const phiMidAngle = phiRad / 2;
+                const phiLabelPos = new THREE.Vector3(
+                    centerX + rphi * Math.cos(phiMidAngle),
+                    centerY + rphi * Math.sin(phiMidAngle),
+                    labelZ
+                );
+                // Add drho label at mid point of drho vector (from origin to P)
+                // Calculate midpoint between (x0,y0) and (xp,yp)
+                const midX = (x0 + xp) / 2;
+                const midY = (y0 + yp) / 2;
+
+                // Calculate direction from origin to midpoint
+                const midToOriginDir = new THREE.Vector2(midX, midY).normalize();
+
+                // Calculate perpendicular direction (rotate 90 degrees clockwise)
+                const perpDir = new THREE.Vector2(-midToOriginDir.y, midToOriginDir.x);
+
+                // Label position: at midpoint with slight perpendicular offset to avoid overlapping the line
+                const drhoLabelPos = new THREE.Vector3(
+                    midX + perpDir.x * 0.15,  // Small offset perpendicular to the line
+                    midY + perpDir.y * 0.15,
+                    labelZ
+                );
+                zPlaneLabelsGroup.add(createLabel('dᵨ', drhoLabelPos, COLOR_PINE_GREEN, null, true));
+
+                // phi angle between px direction and pt direction
+                const pt = params.kappa !== 0 ? 1 / Math.abs(params.kappa) : 10;
+                const px = pt * Math.cos(phiRad - Math.PI / 2);
+                const dirPt = new THREE.Vector2(Math.cos(phiRad), Math.sin(phiRad));
+                // start angle: px direction (along +X if px>=0, otherwise -X)
+                const startA = (px >= 0) ? 0 : Math.PI;
+                // end angle: pt direction
+                const endA = Math.atan2(dirPt.y, dirPt.x);
+                // normalize so arc goes shortest way
+                let a0 = startA;
+                let a1 = endA;
+                while (a1 - a0 > Math.PI) a1 -= Math.PI * 2;
+                while (a1 - a0 < -Math.PI) a1 += Math.PI * 2;
+                const arcuSeg = 30;
+                const rpsi = 1.3;//yzhang FIXME - should depend on momentum magnitude for better visualization
+                const psiPts = [];
+                for (let i = 0; i <= arcuSeg; i++) {
+                    const a = a0 + (i / arcuSeg) * (a1 - a0);
+                    psiPts.push(new THREE.Vector3(xp + rpsi * Math.cos(a), yp + rpsi * Math.sin(a), zPos));
+                }
+                const phiArc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(psiPts), new THREE.LineBasicMaterial({ color: COLOR_PINE_GREEN }));
+                zPlaneProjGroup.add(phiArc);
+                // label at mid angle on psi arc
+                const midA = a0 + 0.5 * (a1 - a0);
+                const psiLabelPos = new THREE.Vector3(
+                    xp + rpsi * Math.cos(midA),
+                    yp + rpsi * Math.sin(midA),
+                    labelZ + 0.02
+                );
+                // Radial offset (center is P, i.e. xp,yp)
+                const phiDir2 = new THREE.Vector2(Math.cos(midA), Math.sin(midA)).normalize();
+                psiLabelPos.x += phiDir2.x * 0.3;
+                psiLabelPos.y += phiDir2.y * 0.3;
+                zPlaneLabelsGroup.add(createLabel('ϕ₀', psiLabelPos, COLOR_PINE_GREEN, null, true));
+            })();
+
+            // --- X axis projection on Z plane ---
+            (function () {
+                const axisLen = 8;
+                const xPts = [
+                    new THREE.Vector3(-axisLen, 0, zPos),
+                    new THREE.Vector3(axisLen, 0, zPos)
+                ];
+                const xLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(xPts), new THREE.LineBasicMaterial({ color: COLOR_GRAY, linewidth: 1 }));
+                //zPlaneProjGroup.add(xLine);
+            })();
+
+            // also add projection of O->P dashed line onto Z plane
+            (function () {
+                const opProj = createDashedLine([
+                    new THREE.Vector3(0, 0, zPos),
+                    new THREE.Vector3(xc, yc, zPos)
+                ], { color: COLOR_GRAY, dashSize: 0.2, gapSize: 0.05 });
+                if (zPlaneProjGroup) zPlaneProjGroup.add(opProj);
+            })();
+
+            // also add projection of O->X dashed line onto Z plane
+            (function () {
+                const opProj = createDashedLine([
+                    new THREE.Vector3(xp, yp, zPos),
+                    new THREE.Vector3(xp + 3, yp, zPos)
+                ], { color: COLOR_GRAY, dashSize: 0.2, gapSize: 0.05 });
+                if (zPlaneProjGroup) zPlaneProjGroup.add(opProj);
+            })();
+
+
+
+
+        }
+
+        // =================== Initialize and Run Animation ===================
+        initScene();
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            buildXYProjections();   // Redraw on parameter change
+
+            controls.update();
+
+            // First clear main canvas and render main scene
+            renderer.clear();
+            renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+            renderer.setScissorTest(false);
+            renderer.render(scene, camera);
+
+            // Then render small view in bottom right corner
+            const xySize = 200; // Fixed small window pixel size
+            const margin = 20;
+            const px = window.innerWidth - xySize - margin;
+            const py = margin;
+
+            renderer.clearDepth(); // Ensure small view is not affected by depth cache
+            renderer.setScissor(px, py, xySize, xySize);
+            renderer.setViewport(px, py, xySize, xySize);
+            renderer.setScissorTest(true);
+            renderer.render(xyScene, xyCam);
+
+            // Disable scissor test
+            renderer.setScissorTest(false);
+        }
+
+        function exportToSVG() {
+            // 创建SVG渲染器
+            const rendererSVG = new THREE.SVGRenderer();
+            rendererSVG.setSize(window.innerWidth, window.innerHeight);
+
+            // 重要：SVGRenderer需要环境光[citation:7]
+            const ambient = new THREE.AmbientLight(0xffffff);
+            scene.add(ambient);
+
+            // 渲染到SVG
+            rendererSVG.render(scene, camera);
+
+            // 导出SVG文件
+            const serializer = new XMLSerializer();
+            const svgString = serializer.serializeToString(rendererSVG.domElement);
+            const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(svgBlob);
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'scene.svg';
+            link.click();
+
+            // 清理
+            scene.remove(ambient);
+            URL.revokeObjectURL(url);
+        }
+
+        function takeHighResScreenshot() {
+            // 保存当前状态
+            const oldWidth = renderer.domElement.width;
+            const oldHeight = renderer.domElement.height;
+
+            // 设置目标分辨率（例如 4K）
+            const targetWidth = 3840;
+            const targetHeight = 2160;
+
+            // 临时调整渲染器大小[citation:10]
+            renderer.setSize(targetWidth, targetHeight);
+            renderer.render(scene, camera);
+
+            // 捕获截图（需要 preserveDrawingBuffer: true）[citation:8]
+            const dataURL = renderer.domElement.toDataURL('image/png');
+
+            // 恢复原始大小
+            renderer.setSize(oldWidth, oldHeight);
+            renderer.render(scene, camera);
+
+            // 下载文件
+            const link = document.createElement('a');
+            link.download = 'screenshot.png';
+            link.href = dataURL;
+            link.click();
+        }
+
+        animate();
+
+        // Window resize handling
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Initial status
+        updateStatus('Ready');
+
+
+
+    </script>
+
+</body>
+
+</html>
